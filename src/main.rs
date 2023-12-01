@@ -7,7 +7,7 @@ fn main() {
 
     // Uncomment this block to pass the first stage
     let udp_socket = UdpSocket::bind("127.0.0.1:2053").expect("Failed to do stuff.");
-    let mut buf = [0; 12];
+    let mut buf = [0; 512];
     loop {
         match udp_socket.recv_from(&mut buf) {
             Ok((size, source)) => {
