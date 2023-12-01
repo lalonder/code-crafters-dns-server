@@ -6,6 +6,12 @@ struct DnsMessage {
     header: [u8; 12]
 }
 
+impl DnsMessage {
+    fn respond(&mut self) {
+        self.header[2] += 0b1000_0000u8;
+    }
+}
+
 
 fn main() {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -17,12 +23,11 @@ fn main() {
     loop {
         match udp_socket.recv_from(&mut buf) {
             Ok((size, source)) => {
-                let headers = <[u8; 12]>::try_from(&buf[..12]).unwrap();
-                let body = std::str::from_utf8(&buf[12..size]).expect("Failed to parse body");
-                println!("Received {} bytes from {}: {:?} {}", size, source, headers, body);
-                let response = DnsMessage { header: headers };
+                let mut message = DnsMessage { header: <[u8; 12]>::try_from(&buf[..12]).unwrap() };
+                println!("Received {} bytes from {}: {:?}", size, source, message.header);
+                message.respond();
                 udp_socket
-                    .send_to(&response.header, source)
+                    .send_to(&message.header, source)
                     .expect("Failed to send response");
             }
             Err(e) => {
