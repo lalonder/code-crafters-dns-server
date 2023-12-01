@@ -11,8 +11,9 @@ fn main() {
     loop {
         match udp_socket.recv_from(&mut buf) {
             Ok((size, source)) => {
-                let headers = String::from_utf8_lossy(&buf[12..size]);
-                println!("Received {} bytes from {}: {}", size, source, headers);
+                let headers = &buf[..12];
+                let body = std::str::from_utf8(&buf[12..size]).expect("Failed to parse body");
+                println!("Received {} bytes from {}: {:?} {}", size, source, headers, body);
                 let response = [];
                 udp_socket
                     .send_to(&response, source)
