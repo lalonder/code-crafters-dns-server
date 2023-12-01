@@ -12,7 +12,7 @@ fn main() {
         match udp_socket.recv_from(&mut buf) {
             Ok((size, source)) => {
                 let headers = String::from_utf8_lossy(&buf[0..size]);
-                println!("Received {} bytes from {}: {}", size, source, std::str::from_utf8(&buf[..size]));
+                println!("Received {} bytes from {}: {}", size, source, std::str::from_utf8(&buf[..size]).unwrap());
                 let response = [];
                 udp_socket
                     .send_to(&response, source)
