@@ -51,6 +51,12 @@ impl DnsHeader {
     fn set_response_flag(&mut self) {
         self.flags[0] += 0b1000_0000
     }
+
+    fn respond(&mut self) -> Vec<u8> {
+        self.set_response_flag();
+        self.qdcount += 1;
+        get_header_array(self)
+    }
 }
 
 fn main() {
@@ -63,10 +69,9 @@ fn main() {
             Ok((size, source)) => {
                 let mut message = DnsMessage::from(&buf[..]);
                 println!("Received {} bytes from {}: {:?}", size, source, get_header_array(&message.header));
-                message.header.set_response_flag();
                 println!("{:?}", message);
                 udp_socket
-                   .send_to(&get_header_array(&message.header)[..], source)
+                   .send_to(&message.header.respond()[..], source)
                    .expect("Failed to send response");
             }
             Err(e) => {
