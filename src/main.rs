@@ -2,47 +2,36 @@ use std::net::UdpSocket;
 
 #[derive(Debug)]
 struct DnsHeader {
-    id: u16,
+    id: [u8; 2],
     flags: [u8; 2],
-    qdcount: u16,
-    ancount: u16,
-    nscount: u16,
-    arcount: u16,
+    qdcount: [u8; 2],
+    ancount: [u8; 2],
+    nscount: [u8; 2],
+    arcount: [u8; 2],
 }
 
 #[derive(Debug)]
-struct DnsMessage {
+struct DnsQuestion<'a> {
+    qname: &'a [u8],
+    qtype: [u8; 2],
+    qclass: [u8; 2],
+}
+
+#[derive(Debug)]
+struct DnsMessage<'a> {
     header: DnsHeader,
+    question: DnsQuestion<'a>,
 }
 
 impl From<&[u8]> for DnsHeader {
     fn from(buffer: &[u8]) -> Self {
         DnsHeader {
-            id:         u16::from_be_bytes([buffer[0], buffer[1]]),
+            id:         [buffer[0], buffer[1]],
             flags:      [buffer[2], buffer[3]],
-            qdcount:    u16::from_be_bytes([buffer[4], buffer[5]]),
-            ancount:    u16::from_be_bytes([buffer[6], buffer[7]]),
-            nscount:    u16::from_be_bytes([buffer[8], buffer[9]]),
-            arcount:    u16::from_be_bytes([buffer[10], buffer[11]]),
-        }
-    }
-}
-
-fn get_header_array(header: &DnsHeader) -> Vec<u8> {
-    [
-        header.id.to_be_bytes(),
-        header.flags,
-        header.qdcount.to_be_bytes(),
-        header.ancount.to_be_bytes(),
-        header.nscount.to_be_bytes(),
-        header.arcount.to_be_bytes(),
-    ].concat()
-}
-
-impl From<&[u8]> for DnsMessage {
-    fn from(buffer: &[u8]) -> Self {
-        DnsMessage {
-            header: DnsHeader::from(&buffer[..12]),
+            qdcount:    [buffer[4], buffer[5]],
+            ancount:    [buffer[6], buffer[7]],
+            nscount:    [buffer[8], buffer[9]],
+            arcount:    [buffer[10], buffer[11]],
         }
     }
 }
@@ -50,6 +39,24 @@ impl From<&[u8]> for DnsMessage {
 impl DnsHeader {
     fn set_response_flag(&mut self) {
         self.flags[0] += 0b1000_0000
+    }
+
+    fn as_bytes(&self) -> Vec<u8> {
+        [self.id, self.flags, self.qdcount, self.ancount, self.nscount, self.arcount].concat()
+    }
+}
+
+impl<'a> DnsQuestion<'a> {
+    fn as_bytes(&self) -> Vec<u8> {
+        [self.qname, &self.qtype, &self.qclass].concat()
+    }
+}
+
+impl<'a> DnsMessage<'a> {
+    fn respond(&mut self) -> Vec<u8> {
+        self.header.set_response_flag();
+        self.header.qdcount = (u16::from_be_bytes(self.header.qdcount) + 1).to_be_bytes();
+        [self.header.as_bytes(), self.question.as_bytes()].concat()
     }
 }
 
@@ -61,12 +68,17 @@ fn main() {
     loop {
         match udp_socket.recv_from(&mut buf) {
             Ok((size, source)) => {
-                let mut message = DnsMessage::from(&buf[..]);
-                println!("Received {} bytes from {}: {:?}", size, source, get_header_array(&message.header));
-                message.header.set_response_flag();
-                println!("{:?}", message);
+                let header: DnsHeader = DnsHeader::from(&buf[..]);
+                let question: DnsQuestion = DnsQuestion {
+                    qname: "\x0ccodecrafter\x02io\x00".as_bytes(),
+                    qtype: [0, 1],
+                    qclass: [0, 1]
+                };
+                let mut message: DnsMessage = DnsMessage { header, question };
+                let response = message.respond();
+                println!("Received {} bytes from {}: {:?} {:?}", size, source, message.header, message.question);
                 udp_socket
-                   .send_to(&get_header_array(&message.header)[..], source)
+                   .send_to(&response, source)
                    .expect("Failed to send response");
             }
             Err(e) => {
