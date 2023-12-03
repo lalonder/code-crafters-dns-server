@@ -28,8 +28,15 @@ impl From<&[u8]> for DnsHeader {
     }
 }
 
-fn get_header_array(header: &DnsHeader) -> [u16; 6] {
-    [header.id, u16::from_be_bytes(header.flags), header.qdcount, header.ancount, header.nscount, header.arcount]
+fn get_header_array(header: &DnsHeader) -> Vec<u8> {
+    [
+        header.id.to_be_bytes(),
+        header.flags,
+        header.qdcount.to_be_bytes(),
+        header.ancount.to_be_bytes(),
+        header.nscount.to_be_bytes(),
+        header.arcount.to_be_bytes(),
+    ].concat()
 }
 
 impl From<&[u8]> for DnsMessage {
@@ -58,9 +65,9 @@ fn main() {
                 println!("Received {} bytes from {}: {:?}", size, source, get_header_array(&message.header));
                 message.header.set_response_flag();
                 println!("{:?}", message);
-                // udp_socket
-                   // .send_to(, source)
-                   // .expect("Failed to send response");
+                udp_socket
+                   .send_to(&get_header_array(&message.header)[..], source)
+                   .expect("Failed to send response");
             }
             Err(e) => {
                 eprintln!("Error receiving data: {}", e);
