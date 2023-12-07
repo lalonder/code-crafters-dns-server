@@ -41,24 +41,24 @@ impl DnsHeader {
         self.flags[0] += 0b1000_0000
     }
 
-    fn as_bytes(&self) -> Vec<u8> {
+    fn as_vec(&self) -> Vec<u8> {
         [self.id, self.flags, self.qdcount, self.ancount, self.nscount, self.arcount].concat()
     }
 }
 
 impl<'a> DnsQuestion<'a> {
-    fn as_bytes(&self) -> Vec<u8> {
+    fn as_vec(&self) -> Vec<u8> {
         [self.qname, &self.qtype, &self.qclass].concat()
     }
 }
 
 impl<'a> DnsMessage<'a> {
-    fn respond(&mut self) -> Vec<u8> {
+    fn response(&mut self) -> Vec<u8> {
         self.header.id[0] = "\x12".as_bytes()[0];
         self.header.id[1] = "\x34".as_bytes()[0];
         self.header.set_response_flag();
         self.header.qdcount = (u16::from_be_bytes(self.header.qdcount) + 1).to_be_bytes();
-        [self.header.as_bytes(), self.question.as_bytes()].concat()
+        [self.header.as_vec(), self.question.as_vec()].concat()
     }
 }
 
@@ -77,11 +77,11 @@ fn main() {
                     qclass: [0, 1]
                 };
                 let mut message: DnsMessage = DnsMessage { header, question };
-                let response = message.respond();
                 println!("Received {} bytes from {}: {:?} {:?}", size, source, message.header, message.question);
                 udp_socket
-                   .send_to(&response, source)
+                   .send_to(&message.response(), source)
                    .expect("Failed to send response");
+                println!("{:?}", message);
             }
             Err(e) => {
                 eprintln!("Error receiving data: {}", e);
