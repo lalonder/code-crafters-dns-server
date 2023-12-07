@@ -31,7 +31,7 @@ struct DnsAnswer {
 struct DnsMessage {
     header: DnsHeader,
     question: DnsQuestion,
-    answer: DnsAnswer,
+    // answer: DnsAnswer,
 }
 
 impl DnsAnswer {
@@ -61,16 +61,31 @@ impl DnsAnswer {
 impl DnsHeader {
     fn from(buffer: &[u8]) -> Self {
         DnsHeader {
-            id:         [buffer[0], buffer[1]],
-            flags:      [buffer[2], buffer[3]],
-            qdcount:    [buffer[4], buffer[5]],
-            ancount:    [buffer[6], buffer[7]],
-            nscount:    [buffer[8], buffer[9]],
-            arcount:    [buffer[10], buffer[11]],
+            id: [buffer[0], buffer[1]],
+            flags: [buffer[2], buffer[3]],
+            qdcount: [buffer[4], buffer[5]],
+            ancount: [buffer[6], buffer[7]],
+            nscount: [buffer[8], buffer[9]],
+            arcount: [buffer[10], buffer[11]],
         }
     }
-    fn set_response_flag(&mut self) {
-        self.flags[0] ^= 0b1000_0000;
+
+    fn parse_flags(self) -> [u8; 8] {
+        let qr =     self.flags[0] & 0b1000_0000;
+        let opcode = self.flags[0] & 0b0111_1000;
+        let aa =     self.flags[0] & 0b0000_0100;
+        let tc =     self.flags[0] & 0b0000_0010;
+        let rd =     self.flags[0] & 0b0000_0001;
+        let ra =     self.flags[1] & 0b1000_0000;
+        let z =      self.flags[1] & 0b0111_0000;
+        let rcode =  match opcode {
+            0 => 0,
+            _ => 4
+        };
+        [qr, opcode, aa, tc, rd, ra, z, rcode]
+    }
+    fn set_response_indicator(&mut self) {
+        self.flags[0] |= 0b1000_0000;
     }
 
     fn as_vec(&self) -> Vec<u8> {
@@ -98,15 +113,21 @@ impl DnsQuestion {
 }
 
 impl DnsMessage {
+    fn from(buf: &[u8]) -> Self {
+        DnsMessage {
+            header: DnsHeader::from(&buf[..12]),
+            question: DnsQuestion::from(&buf[12..]),
+        }
+    }
+
     fn response(&mut self) -> Vec<u8> {
-        self.header.id = [1234u16.to_be_bytes()[0], 1234u16.to_be_bytes()[1]];
-        self.header.set_response_flag();
+        self.header.set_response_indicator();
         self.header.qdcount = 1u16.to_be_bytes();
         self.header.ancount = 1u16.to_be_bytes();
         [
             self.header.as_vec(),
             self.question.as_vec(),
-            self.answer.as_vec(),
+            DnsAnswer::new().as_vec(),
         ].concat()
     }
 }
@@ -118,12 +139,10 @@ fn main() {
     let mut buf = [0; 512];
     loop {
         match udp_socket.recv_from(&mut buf) {
-            Ok((size, source)) => {
-                let header = DnsHeader::from(&buf[..]);
-                let question = DnsQuestion::from(&buf[12..]);
-                let answer = DnsAnswer::new();
-                let mut message = DnsMessage { header, question, answer };
+            Ok((_size, source)) => {
+                let mut message = DnsMessage::from(&buf);
                 let response = message.response();
+                println!("{:?}", message.header.parse_flags());
                 println!("{:?}", response);
                 udp_socket
                    .send_to(&response, source)
