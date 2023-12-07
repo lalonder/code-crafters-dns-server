@@ -18,9 +18,9 @@ struct DnsQuestion<'a> {
 }
 
 #[derive(Debug)]
-struct DnsMessage<'a> {
+struct DnsMessage {
     header: DnsHeader,
-    question: DnsQuestion<'a>,
+    // question: DnsQuestion<'a>,
 }
 
 impl From<&[u8]> for DnsHeader {
@@ -38,7 +38,7 @@ impl From<&[u8]> for DnsHeader {
 
 impl DnsHeader {
     fn set_response_flag(&mut self) {
-        self.flags[0] += 0b1000_0000
+        self.flags[0] ^= 0b1000_0000;
     }
 
     fn as_vec(&self) -> Vec<u8> {
@@ -52,12 +52,12 @@ impl<'a> DnsQuestion<'a> {
     }
 }
 
-impl<'a> DnsMessage<'a> {
+impl DnsMessage {
     fn response(&mut self) -> Vec<u8> {
-        self.header.id = 1234u16.to_be_bytes();
+        self.header.id = [1234u16.to_be_bytes()[0], 1234u16.to_be_bytes()[1]];
         self.header.set_response_flag();
         self.header.qdcount = (u16::from_be_bytes(self.header.qdcount) + 1).to_be_bytes();
-        [self.header.as_vec(), self.question.as_vec()].concat()
+        self.header.as_vec()
     }
 }
 
@@ -69,16 +69,16 @@ fn main() {
     loop {
         match udp_socket.recv_from(&mut buf) {
             Ok((size, source)) => {
+                println!("Received {} bytes from {}: {:?}", size, source, buf.as_slice());
                 let header: DnsHeader = DnsHeader::from(&buf[..]);
                 let question: DnsQuestion = DnsQuestion {
                     qname: "\x0ccodecrafter\x02io\x00".as_bytes(),
                     qtype: [0, 1],
                     qclass: [0, 1]
                 };
-                let mut message: DnsMessage = DnsMessage { header, question };
-                println!("Received {} bytes from {}: {:?} {:?}", size, source, message.header, message.question);
+                let mut message: DnsMessage = DnsMessage { header };
                 udp_socket
-                   .send_to(&message.response(), source)
+                   .send_to(&message.response()[..], source)
                    .expect("Failed to send response");
                 println!("{:?}", message);
             }
