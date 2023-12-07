@@ -54,7 +54,7 @@ impl<'a> DnsQuestion<'a> {
 
 impl<'a> DnsMessage<'a> {
     fn response(&mut self) -> Vec<u8> {
-        self.header.id = 1234u16.to_be_bytes();
+        self.header.id = [1234u16.to_be_bytes()[0], 1234u16.to_be_bytes()[1]];
         self.header.set_response_flag();
         self.header.qdcount = (u16::from_be_bytes(self.header.qdcount) + 1).to_be_bytes();
         [self.header.as_vec(), self.question.as_vec()].concat()
