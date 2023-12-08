@@ -78,6 +78,7 @@ impl DnsHeader {
         let ra =     self.flags[1] & 0b1000_0000;
         let z =      0b0000_0000;
         let rcode =  if opcode == 0u8 { 0u8 } else { 4u8 };
+        println!("{:?}", [qr, opcode, aa, tc, ra, z, rcode]);
         [qr+opcode+aa+tc+rd, ra+z+rcode]
     }
     fn set_response_indicator(&mut self) {
