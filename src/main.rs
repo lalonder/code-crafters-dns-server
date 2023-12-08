@@ -69,7 +69,7 @@ impl DnsHeader {
         }
     }
 
-    fn parse_flags(self) -> [u8; 2] {
+    fn parse_flags(&mut self) {
         let qr =     self.flags[0] & 0b1000_0000;
         let opcode = self.flags[0] & 0b0111_1000;
         let aa =     0b0000_0000u8;
@@ -78,7 +78,7 @@ impl DnsHeader {
         let ra =     self.flags[1] & 0b1000_0000;
         let z =      0b0000_0000;
         let rcode =  if opcode == 0u8 { 0u8 } else { 4u8 };
-        [qr+opcode+aa+tc+rd, ra+z+rcode]
+        self.flags = [qr+opcode+aa+tc+rd, ra+z+rcode]
     }
     fn set_response_indicator(&mut self) {
         self.flags[0] |= 0b1000_0000;
@@ -117,6 +117,7 @@ impl DnsMessage {
     }
 
     fn response(&mut self) -> Vec<u8> {
+        self.header.parse_flags();
         self.header.set_response_indicator();
         self.header.qdcount = 1u16.to_be_bytes();
         self.header.ancount = 1u16.to_be_bytes();
