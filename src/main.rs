@@ -110,16 +110,7 @@ impl DnsMessage {
 
     fn response(&mut self) -> Vec<u8> {
         self.header.set_response_indicator();
-        if self.question.qname.is_empty() {
-            self.header.qdcount = 0u16.to_be_bytes();
-        } else {
-            self.header.qdcount = 1u16.to_be_bytes();
-        }
-        if self.answer.aname.is_empty() {
-            self.header.ancount = 0u16.to_be_bytes();
-        } else {
-            self.header.ancount = 1u16.to_be_bytes();
-        }
+        self.header.ancount = self.header.qdcount;
         [
             self.header.to_vec(),
             self.question.to_vec(),
@@ -158,8 +149,7 @@ fn main() {
             Ok((_size, source)) => {
                 let mut message = DnsMessage::from(&buf);
                 let response = message.response();
-                println!("{:?}", message);
-                println!("{:?}", response);
+                println!("{:?}", buf);
                 udp_socket
                    .send_to(&response, source)
                    .expect("Failed to send response");
