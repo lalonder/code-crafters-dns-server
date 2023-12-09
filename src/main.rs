@@ -61,7 +61,7 @@ impl DnsHeader {
     fn from(buffer: &[u8]) -> Self {
         DnsHeader {
             id: [buffer[0], buffer[1]],
-            flags: [buffer[2], buffer[3]],
+            flags: parse_flags([buffer[2], buffer[3]]),
             qdcount: [buffer[4], buffer[5]],
             ancount: [buffer[6], buffer[7]],
             nscount: [buffer[8], buffer[9]],
@@ -69,17 +69,6 @@ impl DnsHeader {
         }
     }
 
-    fn parse_flags(&mut self) {
-        let qr =     self.flags[0] & 0b1000_0000;
-        let opcode = self.flags[0] & 0b0111_1000;
-        let aa =     0b0000_0000u8;
-        let tc =     0b0000_0000u8;
-        let rd =     self.flags[0] & 0b0000_0001;
-        let ra =     self.flags[1] & 0b1000_0000;
-        let z =      0b0000_0000;
-        let rcode =  if opcode == 0u8 { 0u8 } else { 4u8 };
-        self.flags = [qr+opcode+aa+tc+rd, ra+z+rcode]
-    }
     fn set_response_indicator(&mut self) {
         self.flags[0] |= 0b1000_0000;
     }
@@ -91,14 +80,13 @@ impl DnsHeader {
 
 impl DnsQuestion {
     fn from(buf: &[u8]) -> Self {
-        let mut domain_name: Vec<u8> = buf.iter().take_while(|x| **x != 0u8).cloned().collect();
-        domain_name.push(0u8);
         DnsQuestion {
-            qname: domain_name,
+            qname: parse_domain_names(buf),
             qtype: 1u16.to_be_bytes(),
             qclass: 1u16.to_be_bytes(),
         }
     }
+
     fn as_vec(&self) -> Vec<u8> {
         [
             &self.qname[..],
@@ -117,7 +105,6 @@ impl DnsMessage {
     }
 
     fn response(&mut self) -> Vec<u8> {
-        self.header.parse_flags();
         self.header.set_response_indicator();
         self.header.qdcount = 1u16.to_be_bytes();
         self.header.ancount = 1u16.to_be_bytes();
@@ -127,6 +114,23 @@ impl DnsMessage {
             DnsAnswer::new().as_vec(),
         ].concat()
     }
+}
+
+fn parse_flags(bytes: [u8; 2]) -> [u8; 2] {
+    let qr =     bytes[0] & 0b1000_0000;
+    let opcode = bytes[0] & 0b0111_1000;
+    let aa =     0b0000_0000u8;
+    let tc =     0b0000_0000u8;
+    let rd =     bytes[0] & 0b0000_0001;
+    let ra =     bytes[1] & 0b1000_0000;
+    let z =      0b0000_0000;
+    let rcode =  if opcode == 0u8 { 0u8 } else { 4u8 };
+    [qr+opcode+aa+tc+rd, ra+z+rcode]
+}
+
+fn parse_domain_names(buf: &[u8]) -> Vec<u8> {
+    const START: usize = 13;
+    buf[START..].iter().cloned().take_while(|x| *x != 0u8).collect()
 }
 
 fn main() {
@@ -139,7 +143,7 @@ fn main() {
             Ok((_size, source)) => {
                 let mut message = DnsMessage::from(&buf);
                 let response = message.response();
-                println!("{:?}", message.header.parse_flags());
+                println!("{:?}", message.header);
                 println!("{:?}", response);
                 udp_socket
                    .send_to(&response, source)
