@@ -158,8 +158,6 @@ fn main() {
             Ok((_size, source)) => {
                 let mut message = DnsMessage::from(&buf);
                 let response = message.response();
-                println!("{:?}", message);
-                println!("{:?}", response);
                 udp_socket
                    .send_to(&response, source)
                    .expect("Failed to send response");
