@@ -1,167 +1,150 @@
+mod parser;
+
 use std::net::UdpSocket;
+use bytes::BytesMut;
+use crate::parser::parse_message;
 
 #[derive(Debug, Copy, Clone)]
-struct DnsHeader {
-    id: [u8; 2],
-    flags: [u8; 2],
-    qdcount: [u8; 2],
-    ancount: [u8; 2],
-    nscount: [u8; 2],
-    arcount: [u8; 2],
+pub struct Flags {
+    qr: u8,
+    opcode: u8,
+    aa: u8,
+    tc: u8,
+    rd: u8,
+    ra: u8,
+    z: u8,
+    rcode: u8
 }
 
-#[derive(Debug)]
-struct DnsQuestion {
+#[derive(Debug, Copy, Clone)]
+pub struct Header {
+    id: u16,
+    flags: Flags,
+    qdcount: u16,
+    ancount: u16,
+    nscount: u16,
+    arcount: u16,
+}
+
+#[derive(Debug, Clone)]
+pub struct Question {
     qname: Vec<u8>,
-    qtype: [u8; 2],
-    qclass: [u8; 2],
+    qtype: u16,
+    qclass: u16,
 }
 
-#[derive(Debug)]
-struct DnsAnswer {
+#[derive(Debug, Clone)]
+pub struct Answer {
     aname: Vec<u8>,
-    atype: [u8; 2],
-    aclass: [u8; 2],
-    ttl: [u8; 4],
-    rdlenth: [u8; 2],
+    atype: u16,
+    aclass: u16,
+    ttl: u32,
+    rdlenth: u16,
     rdata: Vec<u8>,
 }
 
-#[derive(Debug)]
-struct DnsMessage {
-    header: DnsHeader,
-    question: DnsQuestion,
-    answer: DnsAnswer,
+#[derive(Debug, Clone)]
+pub struct Message {
+    header: Header,
+    question: Question,
 }
 
-impl DnsHeader {
-    fn from(buffer: &[u8]) -> Self {
-        DnsHeader {
-            id: [buffer[0], buffer[1]],
-            flags: parse_flags([buffer[2], buffer[3]]),
-            qdcount: [buffer[4], buffer[5]],
-            ancount: [buffer[6], buffer[7]],
-            nscount: [buffer[8], buffer[9]],
-            arcount: [buffer[10], buffer[11]],
-        }
+#[derive(Debug, Clone)]
+struct Response {
+    header: Header,
+    question: Question,
+    answer: Answer,
+}
+
+impl Flags {
+    fn set_response_flag(&mut self) {
+        self.qr |= 0b1000_0000;
     }
 
-    fn set_response_indicator(&mut self) {
-        self.flags[0] |= 0b1000_0000;
-    }
-
-    fn to_vec(&self) -> Vec<u8> {
+    fn to_be_bytes(&self) -> [u8; 2] {
         [
-            self.id, self.flags, self.qdcount, self.ancount, self.nscount, self.arcount
+            self.qr + self.opcode + self.aa + self.tc + self.rd,
+            self.ra + self.z + self.rcode,
+        ]
+    }
+}
+
+impl Header {
+    fn as_vec(&self) -> Vec<u8> {
+        [
+            self.id.to_be_bytes(),
+            self.flags.to_be_bytes(),
+            self.qdcount.to_be_bytes(),
+            self.ancount.to_be_bytes(),
+            self.nscount.to_be_bytes(),
+            self.arcount.to_be_bytes(),
         ].concat()
     }
 }
 
-impl DnsQuestion {
-    fn from(buf: &[u8]) -> Self {
-        DnsQuestion {
-            qname: parse_domain_names(buf),
-            qtype: 1u16.to_be_bytes(),
-            qclass: 1u16.to_be_bytes(),
-        }
-    }
-
-    fn to_vec(&self) -> Vec<u8> {
+impl Question {
+    fn as_vec(&self) -> Vec<u8> {
         [
             &self.qname[..],
-            &self.qtype[..],
-            &self.qclass[..],
+            &self.qtype.to_be_bytes(),
+            &self.qclass.to_be_bytes(),
         ].concat()
     }
 }
 
-impl DnsAnswer {
-    fn from(buf: &[u8]) -> Self {
-        DnsAnswer {
-            aname: parse_domain_names(buf),
-            atype: 1u16.to_be_bytes(),
-            aclass: 1u16.to_be_bytes(),
-            ttl: 42u32.to_be_bytes(),
-            rdlenth: 4u16.to_be_bytes(),
-            rdata: Vec::from("\x08\x08\x08\x08"),
-        }
-    }
-
-    fn to_vec(&self) -> Vec<u8> {
+impl Answer {
+    fn as_vec(&self) -> Vec<u8> {
         [
             &self.aname[..],
-            &self.atype[..],
-            &self.aclass[..],
-            &self.ttl[..],
-            &self.rdlenth[..],
+            &self.atype.to_be_bytes(),
+            &self.aclass.to_be_bytes(),
+            &self.ttl.to_be_bytes(),
+            &self.rdlenth.to_be_bytes(),
             &self.rdata[..],
         ].concat()
     }
 }
 
-impl DnsMessage {
-    fn from(buf: &[u8]) -> Self {
-        DnsMessage {
-            header: DnsHeader::from(buf),
-            question: DnsQuestion::from(buf),
-            answer: DnsAnswer::from(buf)
-        }
-    }
-
-    fn response(&mut self) -> Vec<u8> {
-        self.header.set_response_indicator();
-        if self.question.qname.is_empty() {
-            self.header.qdcount = 0u16.to_be_bytes();
-        } else {
-            self.header.qdcount = 1u16.to_be_bytes();
-        }
-        if self.answer.aname.is_empty() {
-            self.header.ancount = 0u16.to_be_bytes();
-        } else {
-            self.header.ancount = 1u16.to_be_bytes();
-        }
+impl Response {
+    fn as_vec(&self) -> Vec<u8> {
         [
-            self.header.to_vec(),
-            self.question.to_vec(),
-            self.answer.to_vec(),
+            self.header.as_vec(),
+            self.question.as_vec(),
+            self.answer.as_vec(),
         ].concat()
     }
 }
 
-fn parse_flags(bytes: [u8; 2]) -> [u8; 2] {
-    let qr =     bytes[0] & 0b1000_0000;
-    let opcode = bytes[0] & 0b0111_1000;
-    let aa =     0b0000_0000u8;
-    let tc =     0b0000_0000u8;
-    let rd =     bytes[0] & 0b0000_0001;
-    let ra =     bytes[1] & 0b1000_0000;
-    let z =      0b0000_0000;
-    let rcode =  if opcode == 0u8 { 0u8 } else { 4u8 };
-    [qr+opcode+aa+tc+rd, ra+z+rcode]
-}
-
-fn parse_domain_names(buf: &[u8]) -> Vec<u8> {
-    const START: usize = 12;
-    const NULL: u8 = 0u8;
-    let mut names: Vec<u8> = buf[START..].iter().cloned().take_while(|x| *x != NULL).collect();
-    names.push(NULL);
-    names
+fn create_response(message: &Message) -> Response {
+    let mut message = message.clone();
+    message.header.flags.set_response_flag();
+    message.header.ancount = message.header.qdcount;
+    Response {
+        header: message.header,
+        question: message.question.clone(),
+        answer: Answer {
+            aname: message.question.qname,
+            atype: 1u16,
+            aclass: 1u16,
+            ttl: 255u32,
+            rdlenth: 4u16,
+            rdata: Vec::from("\x08\x08\x08\x08".as_bytes()),
+        },
+    }
 }
 
 fn main() {
-    println!("Logs from your program will appear here!");
-
     let udp_socket = UdpSocket::bind("127.0.0.1:2053").expect("Failed to bind to socket.");
-    let mut buf = [0; 512];
+    let mut buf: BytesMut = BytesMut::zeroed(512);
     loop {
-        match udp_socket.recv_from(&mut buf) {
+        match udp_socket.recv_from(&mut buf[..]) {
             Ok((_size, source)) => {
-                let mut message = DnsMessage::from(&buf);
-                let response = message.response();
-                println!("{:?}", message);
+                let (_, message) = parse_message(&buf).unwrap();
+                let response = create_response(&message);
                 println!("{:?}", response);
+                println!("{:?}", buf);
                 udp_socket
-                   .send_to(&response, source)
+                   .send_to(&response.as_vec(), source)
                    .expect("Failed to send response");
             }
             Err(e) => {
